@@ -167,6 +167,34 @@ extern DECLSPEC SDL_RWops *SDLCALL SDL_RWFromConstMem(const void *mem,
 
 /* @} *//* RWFrom functions */
 
+/**
+ *  \name setupRWFrom functions
+ *
+ *  Functions to setup preallocated SDL_RWops structures from various data streams.
+ */
+/* @{ */
+
+extern DECLSPEC SDL_RWops *SDLCALL setupRWFromFile(SDL_RWops* rwops,
+                                                   const char *file,
+                                                   const char *mode);
+
+#ifdef HAVE_STDIO_H
+extern DECLSPEC SDL_RWops *SDLCALL setupRWFromFP(SDL_RWops* rwops,
+                                                 FILE * fp,
+                                                 SDL_bool autoclose);
+#else
+extern DECLSPEC SDL_RWops *SDLCALL setupRWFromFP(SDL_RWops* rwops,
+                                                 void * fp,
+                                                 SDL_bool autoclose);
+#endif
+
+extern DECLSPEC SDL_RWops *SDLCALL setupRWFromMem(SDL_RWops* rwops, void *mem, int size);
+extern DECLSPEC SDL_RWops *SDLCALL setupRWFromConstMem(SDL_RWops* rwops,
+                                                       const void *mem,
+                                                       int size);
+
+/* @} *//* setupRWFrom functions */
+
 
 extern DECLSPEC SDL_RWops *SDLCALL SDL_AllocRW(void);
 extern DECLSPEC void SDLCALL SDL_FreeRW(SDL_RWops * area);
