@@ -424,6 +424,7 @@ WIN_SetWindowIcon(_THIS, SDL_Window * window, SDL_Surface * icon)
     hicon = CreateIconFromResource(icon_bmp, icon_len, TRUE, 0x00030000);
 
     SDL_RWclose(dst);
+    SDL_FreeRW(dst);
     SDL_stack_free(icon_bmp);
 
     /* Set the icon for the window */

@@ -92,6 +92,7 @@ DISKAUD_CloseDevice(_THIS)
         this->hidden->mixbuf = NULL;
         if (this->hidden->output != NULL) {
             SDL_RWclose(this->hidden->output);
+            SDL_FreeRW(this->hidden->output);
             this->hidden->output = NULL;
         }
         SDL_free(this->hidden);

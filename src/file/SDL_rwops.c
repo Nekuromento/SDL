@@ -284,7 +284,6 @@ windows_file_close(SDL_RWops * context)
         }
         SDL_free(context->hidden.windowsio.buffer.data);
         context->hidden.windowsio.buffer.data = NULL;
-        SDL_FreeRW(context);
     }
     return 0;
 }
@@ -367,7 +366,6 @@ stdio_close(SDL_RWops * context)
                 status = SDL_Error(SDL_EFWRITE);
             }
         }
-        SDL_FreeRW(context);
     }
     return status;
 }
@@ -453,9 +451,6 @@ mem_writeconst(SDL_RWops * context, const void *ptr, size_t size, size_t num)
 static int SDLCALL
 mem_close(SDL_RWops * context)
 {
-    if (context) {
-        SDL_FreeRW(context);
-    }
     return 0;
 }
 
@@ -500,8 +495,137 @@ SDL_RWFromFile(const char *file, const char *mode)
     rwops = SDL_AllocRW();
     if (!rwops)
         return NULL;            /* SDL_SetError already setup by SDL_AllocRW() */
+    return setupRWFromFile(rwops, file, mode)
+
+#elif defined(__WIN32__)
+    rwops = SDL_AllocRW();
+    if (!rwops)
+        return NULL;            /* SDL_SetError already setup by SDL_AllocRW() */
+    return setupRWFromFile(rwops, file, mode)
+
+#elif HAVE_STDIO_H
+    {
+        #ifdef __APPLE__
+        FILE *fp = SDL_OpenFPFromBundleOrFallback(file, mode);
+        #elif __WINRT__
+        FILE *fp = NULL;
+        fopen_s(&fp, file, mode);
+        #else
+        FILE *fp = fopen(file, mode);
+        #endif
+        if (fp == NULL) {
+            SDL_SetError("Couldn't open %s", file);
+        } else {
+            rwops = SDL_RWFromFP(fp, 1);
+        }
+    }
+#else
+    SDL_SetError("SDL not compiled with stdio support");
+#endif /* !HAVE_STDIO_H */
+
+    return rwops;
+}
+
+#ifdef HAVE_STDIO_H
+SDL_RWops *
+SDL_RWFromFP(FILE * fp, SDL_bool autoclose)
+{
+    SDL_RWops *rwops = NULL;
+
+    rwops = SDL_AllocRW();
+    if (rwops != NULL) {
+        return setupRWFromFP(rwops, fp, autoclose);
+    }
+    return rwops;
+}
+#else
+SDL_RWops *
+SDL_RWFromFP(void * fp, SDL_bool autoclose)
+{
+    SDL_SetError("SDL not compiled with stdio support");
+    return NULL;
+}
+#endif /* HAVE_STDIO_H */
+
+SDL_RWops *
+SDL_RWFromMem(void *mem, int size)
+{
+    SDL_RWops *rwops = NULL;
+    if (!mem) {
+      SDL_InvalidParamError("mem");
+      return rwops;
+    }
+    if (!size) {
+      SDL_InvalidParamError("size");
+      return rwops;
+    }
+
+    rwops = SDL_AllocRW();
+    if (rwops != NULL) {
+        return setupRWFromMem(rwops, mem, size);
+    }
+    return rwops;
+}
+
+SDL_RWops *
+SDL_RWFromConstMem(const void *mem, int size)
+{
+    SDL_RWops *rwops = NULL;
+    if (!mem) {
+      SDL_InvalidParamError("mem");
+      return rwops;
+    }
+    if (!size) {
+      SDL_InvalidParamError("size");
+      return rwops;
+    }
+
+    rwops = SDL_AllocRW();
+    if (rwops != NULL) {
+        return setupRWFromConstMem(rwops, mem, size);
+    }
+    return rwops;
+}
+
+/* Functions to setup preallocated SDL_RWops structures from various data sources */
+
+SDL_RWops *
+setupRWFromFile(SDL_RWops* rwops, const char *file, const char *mode)
+{
+    if (!file || !*file || !mode || !*mode) {
+        SDL_SetError("SDL_RWFromFile(): No file or no mode specified");
+        return NULL;
+    }
+#if defined(__ANDROID__)
+#ifdef HAVE_STDIO_H
+    /* Try to open the file on the filesystem first */
+    if (*file == '/') {
+        FILE *fp = fopen(file, mode);
+        if (fp) {
+            return SDL_RWFromFP(fp, 1);
+        }
+    } else {
+        /* Try opening it from internal storage if it's a relative path */
+        char *path;
+        FILE *fp;
+
+        path = SDL_stack_alloc(char, PATH_MAX);
+        if (path) {
+            SDL_snprintf(path, PATH_MAX, "%s/%s",
+                         SDL_AndroidGetInternalStoragePath(), file);
+            fp = fopen(path, mode);
+            SDL_stack_free(path);
+            if (fp) {
+                return SDL_RWFromFP(fp, 1);
+            }
+        }
+    }
+#endif /* HAVE_STDIO_H */
+
+    /* Try to open the file from the asset system */
+    if (!rwops)
+        return NULL;            /* SDL_SetError already setup by SDL_AllocRW() */
     if (Android_JNI_FileOpen(rwops, file, mode) < 0) {
-        SDL_FreeRW(rwops);
         return NULL;
     }
     rwops->size = Android_JNI_FileSize;
@@ -512,11 +636,9 @@ SDL_RWFromFile(const char *file, const char *mode)
     rwops->type = SDL_RWOPS_JNIFILE;
 
 #elif defined(__WIN32__)
-    rwops = SDL_AllocRW();
     if (!rwops)
         return NULL;            /* SDL_SetError already setup by SDL_AllocRW() */
     if (windows_file_open(rwops, file, mode) < 0) {
-        SDL_FreeRW(rwops);
         return NULL;
     }
     rwops->size = windows_file_size;
@@ -551,11 +673,8 @@ SDL_RWFromFile(const char *file, const char *mode)
 
 #ifdef HAVE_STDIO_H
 SDL_RWops *
-SDL_RWFromFP(FILE * fp, SDL_bool autoclose)
+setupRWFromFP(SDL_RWops* rwops, FILE * fp, SDL_bool autoclose)
 {
-    SDL_RWops *rwops = NULL;
-
-    rwops = SDL_AllocRW();
     if (rwops != NULL) {
         rwops->size = stdio_size;
         rwops->seek = stdio_seek;
@@ -570,7 +689,7 @@ SDL_RWFromFP(FILE * fp, SDL_bool autoclose)
 }
 #else
 SDL_RWops *
-SDL_RWFromFP(void * fp, SDL_bool autoclose)
+setupRWFromFP(SDL_RWops* rwops, void * fp, SDL_bool autoclose)
 {
     SDL_SetError("SDL not compiled with stdio support");
     return NULL;
@@ -578,9 +697,8 @@ SDL_RWFromFP(void * fp, SDL_bool autoclose)
 #endif /* HAVE_STDIO_H */
 
 SDL_RWops *
-SDL_RWFromMem(void *mem, int size)
+setupRWFromMem(SDL_RWops* rwops, void *mem, int size)
 {
-    SDL_RWops *rwops = NULL;
     if (!mem) {
       SDL_InvalidParamError("mem");
       return rwops;
@@ -590,7 +708,6 @@ SDL_RWFromMem(void *mem, int size)
       return rwops;
     }
 
-    rwops = SDL_AllocRW();
     if (rwops != NULL) {
         rwops->size = mem_size;
         rwops->seek = mem_seek;
@@ -606,9 +723,8 @@ SDL_RWFromMem(void *mem, int size)
 }
 
 SDL_RWops *
-SDL_RWFromConstMem(const void *mem, int size)
+setupRWFromConstMem(SDL_RWops* rwops, const void *mem, int size)
 {
-    SDL_RWops *rwops = NULL;
     if (!mem) {
       SDL_InvalidParamError("mem");
       return rwops;
@@ -618,7 +734,6 @@ SDL_RWFromConstMem(const void *mem, int size)
       return rwops;
     }
 
-    rwops = SDL_AllocRW();
     if (rwops != NULL) {
         rwops->size = mem_size;
         rwops->seek = mem_seek;
@@ -632,6 +747,7 @@ SDL_RWFromConstMem(const void *mem, int size)
     }
     return rwops;
 }
+
 
 SDL_RWops *
 SDL_AllocRW(void)
